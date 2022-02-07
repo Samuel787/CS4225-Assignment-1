@@ -11,13 +11,12 @@ import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
-import org.apache.hadoop.mapreduce.lib.input.KeyValueTextInputFormat;
-import org.apache.hadoop.mapreduce.lib.input.SequenceFileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
-import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.hadoop.util.StringUtils;
 
 public class TopKCommonWords {
+
+    private static final int K_VALUE = 20;
 
     public static class CountWord implements WritableComparable<CountWord> {
 
@@ -72,7 +71,16 @@ public class TopKCommonWords {
         public String toString() {
             return mCount.toString() + "\t" + mWord.toString();
         }
+
+        public CountWord clone() {
+            CountWord clone = new CountWord();
+            clone.setmCount(new IntWritable(this.mCount.get()));
+            clone.setmWord(new Text(this.mWord));
+            return clone;
+        }
     }
+
+
 
     public static class WordToDocumentMapper extends Mapper<Object, Text, Text, IntWritable> {
         private final static IntWritable isInput1 = new IntWritable(0);
@@ -140,7 +148,16 @@ public class TopKCommonWords {
         }
     }
 
-        public static class CountToWordMapper extends Mapper<Object, Text, CountWord, NullWritable> {
+    public static class CountToWordMapper extends Mapper<Object, Text, CountWord, IntWritable> {
+
+        private TreeSet<CountWord> treeSet;
+
+        @Override
+        protected void setup(Mapper<Object, Text, CountWord, IntWritable>.Context context) throws IOException,
+                InterruptedException {
+            treeSet = new TreeSet();
+            super.setup(context);
+        }
 
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
             CountWord countWord = new CountWord();
@@ -153,14 +170,26 @@ public class TopKCommonWords {
                 currCount = Integer.parseInt(itr.nextToken());
                 countWord.setmCount(new IntWritable(currCount));
                 countWord.setmWord(new Text(currWord));
-                context.write(countWord, NullWritable.get());
+                treeSet.add(countWord.clone());
+                if (treeSet.size() > K_VALUE) {
+                    treeSet.remove(treeSet.last());
+                }
             }
+        }
+
+        @Override
+        protected void cleanup(Mapper<Object, Text, CountWord, IntWritable>.Context context) throws IOException,
+                InterruptedException {
+            for (CountWord countWord: treeSet) {
+                context.write(countWord, countWord.getmCount());
+            }
+            super.cleanup(context);
         }
     }
 
-    public static class CountToWordPartitioner extends Partitioner<CountWord, NullWritable> {
+    public static class CountToWordPartitioner extends Partitioner<CountWord, IntWritable> {
         @Override
-        public int getPartition(CountWord countWord, NullWritable nullWritable, int numPartitions) {
+        public int getPartition(CountWord countWord, IntWritable intWritable, int numPartitions) {
             return Math.abs(countWord.mCount.hashCode()) % numPartitions;
         }
     }
@@ -178,11 +207,32 @@ public class TopKCommonWords {
         }
     }
 
-    public static class CountToWordReducer extends Reducer<CountWord, NullWritable, IntWritable, Text> {
-        public void reduce(CountWord countWord, NullWritable nullWritable, Context context) throws IOException, InterruptedException {
-            System.out.println("I'm inside reduce mate");
-            context.write(countWord.getmCount(), countWord.getmWord());
-            // context.write(countWord, NullWritable.get());
+    public static class CountToWordReducer extends Reducer<CountWord, IntWritable, IntWritable, Text> {
+
+        private TreeSet<CountWord> treeSet;
+
+        @Override
+        protected void setup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context) throws IOException,
+                InterruptedException {
+            System.out.println("I'm inside reducer set up");
+            treeSet = new TreeSet();
+            super.setup(context);
+        }
+
+        public void reduce(CountWord countWord, Iterable<IntWritable> h, Context context) throws IOException, InterruptedException {
+            treeSet.add(countWord.clone());
+            if (treeSet.size() > K_VALUE) {
+                treeSet.remove(treeSet.last());
+            }
+        }
+
+        @Override
+        protected void cleanup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context) throws IOException
+                , InterruptedException {
+            for (CountWord countWord: treeSet) {
+                context.write(countWord.getmCount(), countWord.getmWord());
+            }
+            super.cleanup(context);
         }
     }
 
@@ -214,7 +264,7 @@ public class TopKCommonWords {
         job2.setGroupingComparatorClass(GroupComparator.class);
         job2.setReducerClass(CountToWordReducer.class);
         job2.setMapOutputKeyClass(CountWord.class);
-        job2.setMapOutputValueClass(NullWritable.class);
+        job2.setMapOutputValueClass(IntWritable.class);
         job2.setOutputKeyClass(IntWritable.class);
         job2.setOutputValueClass(Text.class);
         job2.setNumReduceTasks(1);
