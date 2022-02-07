@@ -1,16 +1,13 @@
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
 import java.net.URI;
 import java.util.*;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
@@ -22,15 +19,68 @@ import org.apache.hadoop.util.StringUtils;
 
 public class TopKCommonWords {
 
+    public static class CountWord implements WritableComparable<CountWord> {
+
+        public IntWritable getmCount() {
+            return mCount;
+        }
+
+        public void setmCount(IntWritable mCount) {
+            this.mCount = mCount;
+        }
+
+        public Text getmWord() {
+            return mWord;
+        }
+
+        public void setmWord(Text mWord) {
+            this.mWord = mWord;
+        }
+
+        private IntWritable mCount;
+        private Text mWord;
+
+        public CountWord() {
+            this.mCount = new IntWritable();
+            this.mWord = new Text();
+        }
+
+        @Override
+        public int compareTo(CountWord o) {
+            if (this.mCount.get() < o.mCount.get()) {
+                return 1;
+            } else if (this.mCount.get() > o.mCount.get()) {
+                return -1;
+            } else {
+                return -1 * this.mWord.compareTo(o.mWord);
+            }
+        }
+
+        @Override
+        public void write(DataOutput dataOutput) throws IOException {
+            this.mWord.write(dataOutput);
+            this.mCount.write(dataOutput);
+        }
+
+        @Override
+        public void readFields(DataInput dataInput) throws IOException {
+            this.mWord.readFields(dataInput);
+            this.mCount.readFields(dataInput);
+        }
+
+        @Override
+        public String toString() {
+            return mCount.toString() + "\t" + mWord.toString();
+        }
+    }
+
     public static class WordToDocumentMapper extends Mapper<Object, Text, Text, IntWritable> {
         private final static IntWritable isInput1 = new IntWritable(0);
         private final static IntWritable notInput1 = new IntWritable(1);
         private Set<String> stopWords = new HashSet<String>();
-        private ArrayList<Integer> mList = new ArrayList<>();
 
         protected void setup(Mapper.Context context) throws IOException, InterruptedException {
             // get all the stop words over here
-            System.out.println("I'm inside the set up");
             URI[] localpaths = context.getCacheFiles();
             for(URI uri: localpaths) {
                 System.out.println("Cahcefile ==> " + uri.getPath());
@@ -68,7 +118,6 @@ public class TopKCommonWords {
 
     public static class WordToDocumentReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
         public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
-            System.out.println("Hi i'm inside reduce");
             IntWritable maxOfCount = new IntWritable();
             int firstDocCount = 0;
             int secondDocCount = 0;
@@ -91,11 +140,10 @@ public class TopKCommonWords {
         }
     }
 
-    public static class CountToWordMapper extends Mapper<Object, Text, IntWritable, Text> {
+        public static class CountToWordMapper extends Mapper<Object, Text, CountWord, NullWritable> {
 
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-            Text word = new Text();
-            IntWritable wordCount = new IntWritable();
+            CountWord countWord = new CountWord();
             StringTokenizer itr = new StringTokenizer(value.toString());
             String currWord;
             int currCount;
@@ -103,17 +151,38 @@ public class TopKCommonWords {
                 currWord = itr.nextToken();
                 // @TODO try catch in notnumberexception
                 currCount = Integer.parseInt(itr.nextToken());
-                System.out.println("This is current word >> " + currWord);
-                word.set(currWord);
-                wordCount.set(currCount);
-                context.write(wordCount, word);
+                countWord.setmCount(new IntWritable(currCount));
+                countWord.setmWord(new Text(currWord));
+                context.write(countWord, NullWritable.get());
             }
         }
     }
 
-    public static class CountToWordReducer extends Reducer<IntWritable, Text, IntWritable, Text> {
-        public void reduce(IntWritable intWritable, Text text, Context context) throws IOException, InterruptedException {
-            context.write(intWritable, text);
+    public static class CountToWordPartitioner extends Partitioner<CountWord, NullWritable> {
+        @Override
+        public int getPartition(CountWord countWord, NullWritable nullWritable, int numPartitions) {
+            return Math.abs(countWord.mCount.hashCode()) % numPartitions;
+        }
+    }
+
+    public static class GroupComparator extends WritableComparator {
+        protected GroupComparator() {
+            super(CountWord.class, true);
+        }
+
+        @Override
+        public int compare(WritableComparable a, WritableComparable b) {
+            CountWord cw1 = (CountWord) a;
+            CountWord cw2 = (CountWord) b;
+            return cw1.compareTo(cw2);
+        }
+    }
+
+    public static class CountToWordReducer extends Reducer<CountWord, NullWritable, IntWritable, Text> {
+        public void reduce(CountWord countWord, NullWritable nullWritable, Context context) throws IOException, InterruptedException {
+            System.out.println("I'm inside reduce mate");
+            context.write(countWord.getmCount(), countWord.getmWord());
+            // context.write(countWord, NullWritable.get());
         }
     }
 
@@ -141,12 +210,16 @@ public class TopKCommonWords {
         Job job2 = Job.getInstance(conf, "SecondJob");
 //        job2.setInputFormatClass(KeyValueTextInputFormat.class);
         job2.setMapperClass(CountToWordMapper.class);
+        job2.setPartitionerClass(CountToWordPartitioner.class);
+        job2.setGroupingComparatorClass(GroupComparator.class);
         job2.setReducerClass(CountToWordReducer.class);
+        job2.setMapOutputKeyClass(CountWord.class);
+        job2.setMapOutputValueClass(NullWritable.class);
         job2.setOutputKeyClass(IntWritable.class);
         job2.setOutputValueClass(Text.class);
+        job2.setNumReduceTasks(1);
         FileInputFormat.addInputPath(job2, new Path(outputTempDir));
         FileOutputFormat.setOutputPath(job2, new Path(args[3]));
-
         success = job2.waitForCompletion(true);
         if (!success) {
             System.exit(1);
