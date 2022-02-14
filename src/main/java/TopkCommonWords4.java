@@ -14,7 +14,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.StringUtils;
 
-public class TopkCommonWords {
+public class TopkCommonWords4 {
 
     private static final int K_VALUE = 20;
 
@@ -100,7 +100,7 @@ public class TopkCommonWords {
                 // @TODO update the file link -> get from the terminal input
                 File stopwordsFile = new File(localpaths[0].getPath());
                 System.out.println("File path: " + stopwordsFile.getAbsolutePath());
-                BufferedReader bufferedReader = new BufferedReader(new FileReader(stopwordsFile.getName()));
+                BufferedReader bufferedReader = new BufferedReader(new FileReader(stopwordsFile));
                 String stopword;
                 while ((stopword = bufferedReader.readLine()) != null) {
                     stopWords.add(stopword);
@@ -209,15 +209,15 @@ public class TopkCommonWords {
             int countTwo;
             // iterate through hashmap to find the max of each word
             for(String word: reducerHashMap.keySet()) {
-                if (reducerHashMap.get(word).get(0) == null) {
-                    continue;
-                }
-                if (reducerHashMap.get(word).get(1) == null) {
-                    continue;
-                }
-                countOne = reducerHashMap.get(word).get(0).getCount().get();
-                countTwo = reducerHashMap.get(word).get(1).getCount().get();
-                if (countOne > 0 && countTwo > 0) {
+//                if (reducerHashMap.get(word).get(0) == null) {
+//                    continue;
+//                }
+//                if (reducerHashMap.get(word).get(1) == null) {
+//                    continue;
+//                }
+                countOne = reducerHashMap.get(word).get(0) == null ? 0 : reducerHashMap.get(word).get(0).getCount().get();
+                countTwo = reducerHashMap.get(word).get(1) == null ? 0 : reducerHashMap.get(word).get(1).getCount().get();
+                if (countOne >= 0 && countTwo >= 0) {
                     System.out.println("this is the word: " + word);
                     treeSet.add(new CountWord(Math.max(countOne, countTwo), word));
                     if (treeSet.size() > K_VALUE) {
@@ -236,7 +236,7 @@ public class TopkCommonWords {
     public static void main(String[] args) throws Exception {
         Configuration conf = new Configuration();
         Job job = Job.getInstance(conf, "TopKCommonWords");
-        job.setJarByClass(TopkCommonWords.class);
+        job.setJarByClass(TopkCommonWords4.class);
         job.setMapperClass(CommonWordsMapper.class);
         // job.setCombinerClass(CommonWordsCombiner.class);
         job.setReducerClass(CommonWordsReducer.class);
@@ -247,7 +247,7 @@ public class TopkCommonWords {
         job.setOutputValueClass(Text.class);
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileInputFormat.addInputPath(job, new Path(args[1]));
-        job.addCacheFile(new URI(args[2]));
+        job.addCacheFile(new Path(args[2]).toUri());
         FileOutputFormat.setOutputPath(job, new Path(args[3]));
         boolean success = job.waitForCompletion(true);
         if (!success) {
