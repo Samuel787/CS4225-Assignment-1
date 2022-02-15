@@ -18,6 +18,9 @@ public class TopkCommonWords {
 
     private static final int K_VALUE = 20;
 
+    private static final boolean ON_CLUSTER = true;
+
+    private static String inputFileOneName;
     public static class CountWord implements WritableComparable<CountWord> {
 
         private IntWritable count;
@@ -96,11 +99,17 @@ public class TopkCommonWords {
             stopWords = new HashSet<>();
             // get all the stop words over here
             URI[] localpaths = context.getCacheFiles();
+            inputFileOneName = context.getConfiguration().get("input_one_file");
             try {
                 // @TODO update the file link -> get from the terminal input
                 File stopwordsFile = new File(localpaths[0].getPath());
                 System.out.println("File path: " + stopwordsFile.getAbsolutePath());
-                BufferedReader bufferedReader = new BufferedReader(new FileReader(stopwordsFile.getName()));
+                BufferedReader bufferedReader;
+                if (ON_CLUSTER) {
+                    bufferedReader = new BufferedReader(new FileReader(stopwordsFile.getName()));
+                } else {
+                    bufferedReader = new BufferedReader(new FileReader(stopwordsFile));
+                }
                 String stopword;
                 while ((stopword = bufferedReader.readLine()) != null) {
                     stopWords.add(stopword);
@@ -112,7 +121,7 @@ public class TopkCommonWords {
 
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
             String documentName = ((FileSplit)context.getInputSplit()).getPath().getName();
-            Integer val = (documentName.equals("task1-input1.txt")) ? 0 : 1;
+            Integer val = (documentName.equals(inputFileOneName)) ? 0 : 1;
             StringTokenizer itr = new StringTokenizer(value.toString(), " \t\n\r\f");
             String currWord;
             while (itr.hasMoreTokens()) {
@@ -235,6 +244,7 @@ public class TopkCommonWords {
 
     public static void main(String[] args) throws Exception {
         Configuration conf = new Configuration();
+        conf.set("input_one_file", new Path(args[0]).getName());
         Job job = Job.getInstance(conf, "TopKCommonWords");
         job.setJarByClass(TopkCommonWords.class);
         job.setMapperClass(CommonWordsMapper.class);
@@ -247,7 +257,12 @@ public class TopkCommonWords {
         job.setOutputValueClass(Text.class);
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileInputFormat.addInputPath(job, new Path(args[1]));
-        job.addCacheFile(new URI(args[2]));
+        if (ON_CLUSTER) {
+            job.addCacheFile(new URI(args[2]));
+        } else {
+            job.addCacheFile(new Path(args[2]).toUri());
+        }
+
         FileOutputFormat.setOutputPath(job, new Path(args[3]));
         boolean success = job.waitForCompletion(true);
         if (!success) {
