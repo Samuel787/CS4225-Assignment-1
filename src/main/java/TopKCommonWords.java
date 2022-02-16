@@ -23,7 +23,7 @@ public class TopkCommonWords {
 
     private static final int K_VALUE = 20;
 
-    private static final boolean ON_CLUSTER = false;
+    private static final boolean ON_CLUSTER = true;
 
     private static String inputFileOneName;
     public static class CountWord implements WritableComparable<CountWord> {
@@ -192,7 +192,7 @@ public class TopkCommonWords {
     public static class CommonWordsReducer extends Reducer<CountWord, IntWritable, IntWritable, Text> {
 
         private TreeSet<CountWord> treeSet;
-        private Map<String, ArrayList<CountWord>> reducerHashMap;
+        private Map<String, ArrayList<Integer>> reducerHashMap;
 
         @Override
         protected void setup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context) throws IOException,
@@ -205,35 +205,19 @@ public class TopkCommonWords {
         protected void reduce(CountWord key, Iterable<IntWritable> values, Reducer<CountWord, IntWritable,
                 IntWritable, Text>.Context context) throws IOException, InterruptedException {
             for (IntWritable val: values) {
-                reducerHashMap.computeIfAbsent(key.getWord().toString(), k -> new ArrayList<>(Arrays.asList(null, null)));
-                CountWord currCountWord = reducerHashMap.get(key.getWord().toString()).get(val.get());
-                if (currCountWord == null) {
-                    reducerHashMap.get(key.getWord().toString()).set(val.get(), key.clone());
-                } else {
-                    currCountWord.setCount(new IntWritable(currCountWord.getCount().get() + key.clone().getCount().get()));
-                    reducerHashMap.get(key.getWord().toString()).set(val.get(), currCountWord);
-                }
+                reducerHashMap.computeIfAbsent(key.getWord().toString(), k -> new ArrayList<>(Arrays.asList(0, 0)));
+                reducerHashMap.get(key.getWord().toString()).set(val.get(), reducerHashMap.get(key.getWord().toString()).get(val.get()) + key.getCount().get());
             }
         }
 
         @Override
         protected void cleanup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context) throws IOException
                 , InterruptedException {
-            int countOne;
-            int countTwo;
             // iterate through hashmap to find the max of each word
             for(String word: reducerHashMap.keySet()) {
-                if (reducerHashMap.get(word).get(0) == null) {
-                    continue;
-                }
-                if (reducerHashMap.get(word).get(1) == null) {
-                    continue;
-                }
-                countOne = reducerHashMap.get(word).get(0).getCount().get();
-                countTwo = reducerHashMap.get(word).get(1).getCount().get();
-                if (countOne > 0 && countTwo > 0) {
+                if (reducerHashMap.get(word).get(0) != 0 && reducerHashMap.get(word).get(1) != 0) {
                     System.out.println("this is the word: " + word);
-                    treeSet.add(new CountWord(Math.max(countOne, countTwo), word));
+                    treeSet.add(new CountWord(Math.max(reducerHashMap.get(word).get(0), reducerHashMap.get(word).get(1)), word));
                     if (treeSet.size() > K_VALUE) {
                         treeSet.remove(treeSet.last());
                     }
