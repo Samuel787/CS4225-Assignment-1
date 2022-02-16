@@ -1,3 +1,8 @@
+/**
+ *  Matric Number: A0182488N
+ *  Name: Suther David Samuel
+ *  CS4225 Programming Assignment 1
+ */
 
 import java.io.*;
 import java.net.URI;
@@ -18,7 +23,7 @@ public class TopkCommonWords {
 
     private static final int K_VALUE = 20;
 
-    private static final boolean ON_CLUSTER = true;
+    private static final boolean ON_CLUSTER = false;
 
     private static String inputFileOneName;
     public static class CountWord implements WritableComparable<CountWord> {
@@ -88,6 +93,7 @@ public class TopkCommonWords {
             return clone;
         }
     }
+
 
     public static class CommonWordsMapper extends Mapper<Object, Text, CountWord, IntWritable> {
         private Set<String> stopWords;
