@@ -97,7 +97,7 @@ public class TopkCommonWords {
 
     public static class CommonWordsMapper extends Mapper<Object, Text, CountWord, IntWritable> {
         private Set<String> stopWords;
-        private Map<String, ArrayList<Integer>> wordToDocumentMap;
+        private Map<String, Integer> wordToDocumentMap;
 
         @Override
         protected void setup(Mapper.Context context) throws IOException, InterruptedException {
@@ -126,17 +126,16 @@ public class TopkCommonWords {
         }
 
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-            String documentName = ((FileSplit)context.getInputSplit()).getPath().getName();
-            Integer val = (documentName.equals(inputFileOneName)) ? 0 : 1;
             StringTokenizer itr = new StringTokenizer(value.toString(), " \t\n\r\f");
             String currWord;
             while (itr.hasMoreTokens()) {
                 currWord = itr.nextToken();
                 if (!stopWords.contains(currWord)) {
                     if (wordToDocumentMap.get(currWord) == null) {
-                        wordToDocumentMap.put(currWord, new ArrayList<>());
+                        wordToDocumentMap.put(currWord, 1);
+                    } else {
+                        wordToDocumentMap.put(currWord, wordToDocumentMap.get(currWord) + 1);
                     }
-                    wordToDocumentMap.get(currWord).add(val);
                 }
             }
         }
@@ -144,11 +143,11 @@ public class TopkCommonWords {
         @Override
         protected void cleanup(Mapper<Object, Text, CountWord, IntWritable>.Context context) throws IOException,
                 InterruptedException {
+            Integer documentId = (((FileSplit)context.getInputSplit()).getPath().getName().equals(inputFileOneName)) ? 0 : 1;
             for (String key: wordToDocumentMap.keySet()) {
-                context.write(new CountWord(wordToDocumentMap.get(key).size(), key), new IntWritable(wordToDocumentMap.get(key).get(0)));
+                context.write(new CountWord(wordToDocumentMap.get(key), key), new IntWritable(documentId));
             }
         }
-
     }
 
 //    public static class CommonWordsCombiner extends Reducer<CountWord, IntWritable, CountWord, IntWritable> {
