@@ -1,3 +1,4 @@
+
 /**
  *  Matric Number: A0182488N
  *  Name: Suther David Samuel
@@ -26,6 +27,7 @@ public class TopkCommonWords {
     private static final boolean ON_CLUSTER = true;
 
     private static String inputFileOneName;
+
     public static class CountWord implements WritableComparable<CountWord> {
 
         private IntWritable count;
@@ -94,7 +96,6 @@ public class TopkCommonWords {
         }
     }
 
-
     public static class CommonWordsMapper extends Mapper<Object, Text, CountWord, IntWritable> {
         private Set<String> stopWords;
         private Map<String, Integer> wordToDocumentMap;
@@ -109,7 +110,6 @@ public class TopkCommonWords {
             try {
                 // @TODO update the file link -> get from the terminal input
                 File stopwordsFile = new File(localpaths[0].getPath());
-                System.out.println("File path: " + stopwordsFile.getAbsolutePath());
                 BufferedReader bufferedReader;
                 if (ON_CLUSTER) {
                     bufferedReader = new BufferedReader(new FileReader(stopwordsFile.getName()));
@@ -121,7 +121,8 @@ public class TopkCommonWords {
                     stopWords.add(stopword);
                 }
             } catch (IOException e) {
-                System.err.println("Exception occurred during parsing stopwords file: " + StringUtils.stringifyException(e));
+                System.err.println(
+                        "Exception occurred during parsing stopwords file: " + StringUtils.stringifyException(e));
             }
         }
 
@@ -143,51 +144,49 @@ public class TopkCommonWords {
         @Override
         protected void cleanup(Mapper<Object, Text, CountWord, IntWritable>.Context context) throws IOException,
                 InterruptedException {
-            Integer documentId = (((FileSplit)context.getInputSplit()).getPath().getName().equals(inputFileOneName)) ? 0 : 1;
-            for (String key: wordToDocumentMap.keySet()) {
+            Integer documentId = (((FileSplit) context.getInputSplit()).getPath().getName().equals(inputFileOneName))
+                    ? 0
+                    : 1;
+            for (String key : wordToDocumentMap.keySet()) {
                 context.write(new CountWord(wordToDocumentMap.get(key), key), new IntWritable(documentId));
             }
         }
     }
 
-//    public static class CommonWordsCombiner extends Reducer<CountWord, IntWritable, CountWord, IntWritable> {
-//
-//        private Map<String, ArrayList<CountWord>> combinerHashMap;
-//
-//        @Override
-//        protected void setup(Reducer<CountWord, IntWritable, CountWord, IntWritable>.Context context) throws IOException, InterruptedException {
-//            super.setup(context);
-//            combinerHashMap = new HashMap<>();
-//        }
-//
-//        @Override
-//        protected void reduce(CountWord key, Iterable<IntWritable> values, Reducer<CountWord, IntWritable, CountWord,
-//                IntWritable>.Context context) throws IOException, InterruptedException {
-//            super.reduce(key, values, context);
-//            for (IntWritable val: values) {
-//                combinerHashMap.computeIfAbsent(key.getWord().toString(), k -> new ArrayList<>(2));
-//                CountWord currCountWord = combinerHashMap.get(key.getWord().toString()).get(val.get());
-//                if (currCountWord == null) {
-//                    combinerHashMap.get(key.getWord().toString()).set(val.get(), key);
-//                } else {
-//                    currCountWord.setCount(new IntWritable(currCountWord.getCount().get() + key.getCount().get()));
-//                    combinerHashMap.get(key.getWord().toString()).set(val.get(), currCountWord);
-//                }
-//            }
-//        }
-//
-//        @Override
-//        protected void cleanup(Reducer<CountWord, IntWritable, CountWord, IntWritable>.Context context) throws IOException, InterruptedException {
-//            super.cleanup(context);
-//            for (String key: combinerHashMap.keySet()) {
-//                for (int i = 0; i < combinerHashMap.get(key).size(); i++) {
-//                    if (combinerHashMap.get(key).get(i) != null) {
-//                        context.write(combinerHashMap.get(key).get(i), new IntWritable(i));
-//                    }
-//                }
-//            }
-//        }
-//    }
+    public static class CommonWordsCombiner extends Reducer<CountWord, IntWritable, CountWord, IntWritable> {
+
+        private Map<String, ArrayList<Integer>> combinerHashMap;
+
+        @Override
+        protected void setup(Reducer<CountWord, IntWritable, CountWord, IntWritable>.Context context)
+                throws IOException, InterruptedException {
+            super.setup(context);
+            combinerHashMap = new HashMap<>();
+        }
+
+        @Override
+        protected void reduce(CountWord key, Iterable<IntWritable> values,
+                Reducer<CountWord, IntWritable, CountWord, IntWritable>.Context context)
+                throws IOException, InterruptedException {
+            for (IntWritable val : values) {
+                combinerHashMap.computeIfAbsent(key.getWord().toString(), k -> new ArrayList<>(Arrays.asList(0, 0)));
+                combinerHashMap.get(key.getWord().toString()).set(val.get(),
+                        combinerHashMap.get(key.getWord().toString()).get(val.get()) + key.getCount().get());
+            }
+        }
+
+        @Override
+        protected void cleanup(Reducer<CountWord, IntWritable, CountWord, IntWritable>.Context context)
+                throws IOException, InterruptedException {
+            for (String key : combinerHashMap.keySet()) {
+                for (int i = 0; i < combinerHashMap.get(key).size(); i++) {
+                    if (combinerHashMap.get(key).get(i) != 0) {
+                        context.write(new CountWord(combinerHashMap.get(key).get(i), key), new IntWritable(i));
+                    }
+                }
+            }
+        }
+    }
 
     public static class CommonWordsReducer extends Reducer<CountWord, IntWritable, IntWritable, Text> {
 
@@ -202,22 +201,24 @@ public class TopkCommonWords {
         }
 
         @Override
-        protected void reduce(CountWord key, Iterable<IntWritable> values, Reducer<CountWord, IntWritable,
-                IntWritable, Text>.Context context) throws IOException, InterruptedException {
-            for (IntWritable val: values) {
+        protected void reduce(CountWord key, Iterable<IntWritable> values,
+                Reducer<CountWord, IntWritable, IntWritable, Text>.Context context)
+                throws IOException, InterruptedException {
+            for (IntWritable val : values) {
                 reducerHashMap.computeIfAbsent(key.getWord().toString(), k -> new ArrayList<>(Arrays.asList(0, 0)));
-                reducerHashMap.get(key.getWord().toString()).set(val.get(), reducerHashMap.get(key.getWord().toString()).get(val.get()) + key.getCount().get());
+                reducerHashMap.get(key.getWord().toString()).set(val.get(),
+                        reducerHashMap.get(key.getWord().toString()).get(val.get()) + key.getCount().get());
             }
         }
 
         @Override
-        protected void cleanup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context) throws IOException
-                , InterruptedException {
+        protected void cleanup(Reducer<CountWord, IntWritable, IntWritable, Text>.Context context)
+                throws IOException, InterruptedException {
             // iterate through hashmap to find the max of each word
-            for(String word: reducerHashMap.keySet()) {
+            for (String word : reducerHashMap.keySet()) {
                 if (reducerHashMap.get(word).get(0) != 0 && reducerHashMap.get(word).get(1) != 0) {
-                    System.out.println("this is the word: " + word);
-                    treeSet.add(new CountWord(Math.max(reducerHashMap.get(word).get(0), reducerHashMap.get(word).get(1)), word));
+                    treeSet.add(new CountWord(
+                            Math.max(reducerHashMap.get(word).get(0), reducerHashMap.get(word).get(1)), word));
                     if (treeSet.size() > K_VALUE) {
                         treeSet.remove(treeSet.last());
                     }
@@ -225,7 +226,7 @@ public class TopkCommonWords {
             }
 
             // treeset now contains top 20
-            for (CountWord countWord: treeSet) {
+            for (CountWord countWord : treeSet) {
                 context.write(countWord.getCount(), countWord.getWord());
             }
         }
@@ -237,7 +238,7 @@ public class TopkCommonWords {
         Job job = Job.getInstance(conf, "TopKCommonWords");
         job.setJarByClass(TopkCommonWords.class);
         job.setMapperClass(CommonWordsMapper.class);
-        // job.setCombinerClass(CommonWordsCombiner.class);
+        job.setCombinerClass(CommonWordsCombiner.class);
         job.setReducerClass(CommonWordsReducer.class);
         job.setNumReduceTasks(1);
         job.setMapOutputKeyClass(CountWord.class);
